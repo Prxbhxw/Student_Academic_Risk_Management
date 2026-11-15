@@ -1,28 +1,28 @@
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# (column name, label shown on screen, type of factor)
+# (column name, label shown on screen, type of factor, unit, decision power tier)
 ANALYSIS_ITEMS = [
-    ('attendance_percentage', 'Attendance (%)', 'main'),
-    ('avg_test_score', 'Test Score', 'main'),
-    ('assignments_submitted_pct', 'Assignment Submission (%)', 'main'),
-    ('previous_semester_gpa', 'Previous Semester GPA', 'main'),
-    ('backlogs', 'Active Backlogs', 'backlog'),
-    ('prev_failed_courses', 'Failed Courses (Prev Sem)', 'backlog'),
-    ('study_hours_per_week', 'Study Hours / Week', 'main'),
-    ('weekly_self_learning_hours', 'Self-Learning Hours / Week', 'main'),
-    ('learning_plan_completion_pct', 'Learning Plan Completion (%)', 'main'),
-    ('online_learning_hours', 'Online Learning Hours / Week', 'main'),
-    ('library_hours_per_week', 'Library Hours / Week', 'main'),
-    ('tutoring_participation', 'Academic Tutoring', 'engage'),
-    ('competition_participation', 'Competitions Participated', 'engage'),
-    ('internship_experience', 'Internship Experience', 'engage'),
-    ('practical_opportunity_freq', 'Practical Opportunities', 'engage'),
-    ('discussion_participation_freq', 'Discussion Frequency / Week', 'main'),
-    ('exercise_hours_per_week', 'Exercise Hours / Week', 'main'),
-    ('extracurricular_participation', 'Extracurricular Participation', 'engage'),
-    ('num_activities', 'Activities / Clubs', 'engage'),
-    ('achievements', 'Achievements / Prizes', 'engage'),
+    ('avg_test_score', 'Test Score', 'main', '/100', 'Tier 1 - Highest Impact (18%)'),
+    ('previous_semester_gpa', 'Previous Semester GPA', 'main', '/10', 'Tier 1 - Highest Impact (19%)'),
+    ('attendance_percentage', 'Attendance Percentage', 'main', '%', 'Tier 1 - Highest Impact (18%)'),
+    ('prev_failed_courses', 'Failed Courses (Prev Sem)', 'backlog', 'courses', 'Tier 2 - Severe Risk Penalty (-15%)'),
+    ('backlogs', 'Active Backlogs', 'backlog', 'backlogs', 'Tier 2 - Severe Risk Penalty (-13%)'),
+    ('learning_plan_completion_pct', 'Learning Plan Completion', 'main', '%', 'Tier 3 - Rigor & Habits (8%)'),
+    ('assignments_submitted_pct', 'Assignment Submission', 'main', '%', 'Tier 3 - Rigor & Habits (9%)'),
+    ('internship_experience', 'Internship & Practical Experience', 'engage', 'months', 'Tier 4 - Industry & Skills (5%)'),
+    ('practical_opportunity_freq', 'Practical Opportunity Frequency', 'engage', 'opps', 'Tier 4 - Industry & Skills (4%)'),
+    ('tutoring_participation', 'Tutoring Sessions Attended', 'engage', 'sessions/mo', 'Tier 4 - Mentorship & Support (5%)'),
+    ('competition_participation', 'Subject Competitions', 'engage', 'events', 'Tier 4 - Advanced Skills (4%)'),
+    ('extracurricular_participation', 'Extracurricular Engagement', 'engage', 'hrs/wk', 'Tier 5 - Holistic Growth (3%)'),
+    ('discussion_participation_freq', 'Discussion Frequency', 'main', '/wk', 'Tier 5 - Engagement (3%)'),
+    ('study_hours_per_week', 'Weekly Study Hours', 'main', 'hrs/wk', 'Tier 3 - Academic Rigor (5%)'),
+    ('weekly_self_learning_hours', 'Self-Learning Hours', 'main', 'hrs/wk', 'Tier 3 - Academic Rigor (4%)'),
+    ('achievements', 'Achievements / Prizes Won', 'engage', 'awards', 'Tier 5 - Growth (2%)'),
+    ('library_hours_per_week', 'Library Study Hours', 'main', 'hrs/wk', 'Tier 5 - Engagement (3%)'),
+    ('online_learning_hours', 'Online Learning Hours', 'main', 'hrs/wk', 'Tier 5 - Digital Study (3%)'),
+    ('num_activities', 'Active Clubs & Societies', 'engage', 'clubs', 'Tier 5 - Engagement (1%)'),
+    ('exercise_hours_per_week', 'Fitness & Exercise Hours', 'main', 'hrs/wk', 'Tier 5 - Wellness (1%)'),
 ]
 
 
@@ -33,8 +33,7 @@ def get_status(kind, s, a):
             return 'pos'
         return 'neu' if s <= a else 'bad'
     if kind == 'engage':
-        # extra activities/prizes/tutoring/competitions/internships are a bonus
-        return 'pos' if s >= a else 'neu'
+        return 'pos' if s >= a else ('neu' if s > 0 else 'bad')
     ratio = s / a if a > 0 else 1
     if ratio >= 1.05:
         return 'pos'
@@ -57,11 +56,17 @@ def analyse(vals, avg):
     """Returns (status dictionary, list of rows for the analysis table)."""
     status = {}
     rows = []
-    for col, label, kind in ANALYSIS_ITEMS:
+    for col, label, kind, unit, power in ANALYSIS_ITEMS:
         s, a = vals[col], avg[col]
         status[col] = get_status(kind, s, a)
-        rows.append({'factor': label, 'student': f"{s:g}", 'average': f"{a:.1f}",
-                     'comparison': get_comparison(s, a), 'status': status[col]})
+        rows.append({
+            'factor': label,
+            'student': f"{s:g} {unit}".strip(),
+            'average': f"{a:.1f} {unit}".strip(),
+            'comparison': get_comparison(s, a),
+            'status': status[col],
+            'power': power
+        })
     return status, rows
 
 
@@ -74,55 +79,57 @@ def confidence_label(p):
 
 
 def get_recommendations(pred, vals, avg, status):
-    """Recommendations are built from the student's real values across all parameters."""
+    """Recommendations are prioritized according to decision power tiers."""
     recs = []
-    if status['attendance_percentage'] == 'bad':
-        recs.append(f"Improve attendance: it is {vals['attendance_percentage']:g}% compared with the dataset average of {avg['attendance_percentage']:.1f}%.")
+    
+    # Tier 1 & 2: Critical High-Impact Decisions
     if status['avg_test_score'] == 'bad':
-        recs.append(f"Focus on improving test scores (yours: {vals['avg_test_score']:g}, dataset average: {avg['avg_test_score']:.1f}) and prepare strategically for assessments.")
-    if status['assignments_submitted_pct'] == 'bad':
-        recs.append(f"Submit assignments consistently (yours: {vals['assignments_submitted_pct']:g}%, dataset average: {avg['assignments_submitted_pct']:.1f}%).")
+        recs.append(f"🔴 [High Impact - 18% Power] Prioritize core test preparation: current average score is {vals['avg_test_score']:g} vs. cohort average of {avg['avg_test_score']:.1f}.")
     if status['previous_semester_gpa'] == 'bad':
-        recs.append(f"Work on boosting GPA (yours: {vals['previous_semester_gpa']:g}, dataset average: {avg['previous_semester_gpa']:.1f}).")
-    if status['backlogs'] == 'bad' or (pred == "High" and vals['backlogs'] > 0):
-        recs.append(f"Clear pending backlogs (currently {vals['backlogs']:g}) through remedial coursework.")
-    if status['prev_failed_courses'] == 'bad' or (pred in ["High", "Medium"] and vals['prev_failed_courses'] > 0):
-        recs.append(f"Enroll in recovery modules to clear previous semester failed course(s) (currently {vals['prev_failed_courses']:g}).")
-    if status['study_hours_per_week'] == 'bad':
-        recs.append(f"Increase weekly study hours (yours: {vals['study_hours_per_week']:g} hrs, dataset average: {avg['study_hours_per_week']:.1f} hrs).")
-    if status['weekly_self_learning_hours'] == 'bad':
-        recs.append(f"Dedicate more independent self-learning time (yours: {vals['weekly_self_learning_hours']:g} hrs/week, dataset average: {avg['weekly_self_learning_hours']:.1f} hrs/week).")
+        recs.append(f"🔴 [High Impact - 19% Power] GPA improvement plan required: current GPA is {vals['previous_semester_gpa']:.2f} vs. benchmark {avg['previous_semester_gpa']:.2f}.")
+    if status['attendance_percentage'] == 'bad':
+        recs.append(f"🔴 [High Impact - 18% Power] Attendance critical alert: attendance is at {vals['attendance_percentage']:g}% (cohort average {avg['attendance_percentage']:.1f}%).")
+    if vals['prev_failed_courses'] > 0:
+        recs.append(f"⚠️ [Severe Penalty - 15% Power] Enroll immediately in re-sit/recovery courses to clear {vals['prev_failed_courses']:g} failed course(s).")
+    if vals['backlogs'] > 0:
+        recs.append(f"⚠️ [Severe Penalty - 13% Power] Clear {vals['backlogs']:g} active backlog(s) before end-semester examinations.")
+
+    # Tier 3: Rigor & Habits
+    if status['assignments_submitted_pct'] == 'bad':
+        recs.append(f"🟡 [Moderate Impact - 9% Power] Submit remaining coursework to increase assignment completion from {vals['assignments_submitted_pct']:g}% towards {avg['assignments_submitted_pct']:.1f}%.")
     if status['learning_plan_completion_pct'] == 'bad':
-        recs.append(f"Improve personal learning plan completion (yours: {vals['learning_plan_completion_pct']:g}%, dataset average: {avg['learning_plan_completion_pct']:.1f}%).")
-    if status['online_learning_hours'] == 'bad':
-        recs.append(f"Leverage digital online learning resources (yours: {vals['online_learning_hours']:g} hrs/week, dataset average: {avg['online_learning_hours']:.1f} hrs/week).")
-    if status['library_hours_per_week'] == 'bad':
-        recs.append(f"Spend more time utilizing campus/digital library study spaces (yours: {vals['library_hours_per_week']:g} hrs/week).")
-    if vals['tutoring_participation'] == 0 and pred in ["High", "Medium"]:
-        recs.append("Participate in departmental academic tutoring sessions to strengthen foundational topics.")
-    if status['discussion_participation_freq'] == 'bad':
-        recs.append(f"Increase academic discussion and study group participation (yours: {vals['discussion_participation_freq']:g}/wk, average: {avg['discussion_participation_freq']:.1f}/wk).")
+        recs.append(f"🟡 [Moderate Impact - 8% Power] Align study schedule with weekly syllabus to raise plan completion from {vals['learning_plan_completion_pct']:g}%.")
+    if status['study_hours_per_week'] == 'bad':
+        recs.append(f"🟡 [Moderate Impact - 5% Power] Increase weekly study time: currently {vals['study_hours_per_week']:g} hrs/wk vs. cohort average {avg['study_hours_per_week']:.1f} hrs/wk.")
+
+    # Tier 4: Mentorship & Practical Skills (Quantitative boosts)
+    if vals['tutoring_participation'] < avg['tutoring_participation']:
+        recs.append(f"💡 [Mentorship Multiplier - 5% Power] Attend more academic tutoring sessions (currently {vals['tutoring_participation']:g} sessions/month vs cohort {avg['tutoring_participation']:.1f}/month).")
+    if vals['internship_experience'] == 0:
+        recs.append(f"💼 [Practical Experience - 5% Power] Gain applied industry experience or internships (each month provides strong resilience against academic risk).")
+    if vals['competition_participation'] == 0:
+        recs.append(f"🏆 [Skill Acceleration - 4% Power] Participate in academic hackathons or domain competitions to build hands-on mastery.")
+
+    # Tier 5: Holistic Balance
+    if vals['extracurricular_participation'] < 1.0:
+        recs.append(f"🌱 [Holistic Balance - 3% Power] Allocate at least 2-4 hours/week for extracurriculars or technical clubs.")
     if status['exercise_hours_per_week'] == 'bad':
-        recs.append(f"Maintain routine physical exercise for improved cognitive focus and stress relief (yours: {vals['exercise_hours_per_week']:g} hrs/week).")
+        recs.append(f"🏃 [Wellness Support - 1% Power] Maintain active physical routine ({vals['exercise_hours_per_week']:g} hrs/wk logged) for mental stamina.")
 
     if pred == "Low":
         base = [
-            "Maintain current outstanding attendance, study habits, and self-learning routines.",
-            "Continue regular assignment submission and academic engagement."
+            "⭐ Outstanding Profile: Core academic metrics (GPA, Test Scores, Attendance) and practical engagement are in the top tier.",
+            "Continue participating in internships and advanced competitions to maintain industry readiness."
         ]
-        if vals['internship_experience'] == 0:
-            base.append("Explore internship and practical opportunities to apply theoretical knowledge in industry.")
-        if vals['competition_participation'] == 0:
-            base.append("Participate in subject-related academic competitions, hackathons, and symposiums to build advanced skills.")
-        return base + ([f"Consider fine-tuning: {r}" for r in recs] if recs else [])
+        return base + recs[:3]
     
     if pred == "Medium":
         if not recs:
-            recs.append("Stay consistent across all study modules; incremental weekly habit gains will move you into Low risk.")
+            recs.append("Consistent progress noted: focusing on 2-3 extra hours of self-study and clearing pending assignments will elevate you to Low Risk.")
         return recs
 
     # High Risk
-    recs.append("Schedule an urgent academic advising consultation with faculty mentors.")
+    recs.insert(0, "🚨 URGENT: Multiple Tier-1 academic parameters indicate high risk. Mandatory mentoring session required.")
     return recs
 
 
